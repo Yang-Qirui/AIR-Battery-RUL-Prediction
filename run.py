@@ -185,17 +185,23 @@ def train(Battery, Battery_list=['CS2_35', 'CS2_36'], lr=0.01, feature_size=8, h
     return score_list, result_list,model
 
 def predict(Battery,Battery_list,model,rated_capacity=1.1,feature_size=8,window_size=64):
-    score_list, result_list = [], []
+    result_list = []
     for i in range(len(Battery_list)):
         name = Battery_list[i]
         aa = Battery[name]['capacity'][:window_size + 1]
         pred_list = copy(aa)
-        train_x = build_sequences(text=aa,window_size=window_size)
-        X = np.reshape(train_x/rated_capacity,
-                       (-1, 1, feature_size)).astype(np.float32)
-        X = torch.from_numpy(X).to(device)
-        pred,_,_ = model(X)
-        next_point = pred.data.cpu().numpy()[0,0]* rated_capacity
+        while len(pred_list) < len(Battery[name]['capacity']):
+            train_x = build_sequences(text=aa,window_size=window_size)
+            X = np.reshape(train_x/rated_capacity,
+                           (-1, 1, feature_size)).astype(np.float32)
+            X = torch.from_numpy(X).to(device)
+            pred,_,_ = model(X)
+            next_point = pred.data.cpu().numpy()[0,0]* rated_capacity
+            aa.append(next_point)
+            aa = aa[1:]
+            pred_list.append(next_point)
+        result_list.append(pred_list)
+    return result_list
         
 
 # Rated_Capacity = 1.1
@@ -298,7 +304,7 @@ def main():
 
     seed = 0
     SCORE = []
-    train_batteries, train_names, test_battery, test_list = load_from_pickle(
+    train_batteries, train_names, test_batteries, test_names = load_from_pickle(
         train_size=train_size)
     # Battery_list = ['CS2_35', 'CS2_36']
     # Battery = load(Battery_list)
@@ -332,9 +338,25 @@ def main():
                  c='black', lw=1, ls='--')  # 临界点直线
         plt.axvline(window_size)
         ax.set(xlabel='Discharge cycles', ylabel='Capacity (Ah)')
+        ax.set_title(f'Train set {name}')
         plt.legend()
-    plt.show()
+        plt.savefig(f'./result/train/{name}.png')
 
+    predict_results = predict(test_batteries,test_names,model)
+    for i in range(len(test_names)):
+        name = test_names[i]
+        battery = test_batteries[name]
+        fig, ax = plt.subplots(1,figsize=(12,8))
+        ax.plot(battery['cycle'],battery['capacity'],'b.',label=name)
+        ax.plot(battery['cycle'],predict_results[i])
+        plt.plot([-1, 1000], [Rated_Capacity*0.7, Rated_Capacity*0.7],
+                 c='black', lw=1, ls='--')
+        plt.axvline(window_size)
+        ax.set(xlabel='Discharge cycles', ylabel='Capacity (Ah)')
+        ax.set_title(f'Test set {name}')
+        plt.legend()
+        plt.savefig(f'./result/test/{name}.png')
+    print('Done ....')
 
 if __name__ == "__main__":
     main()
