@@ -120,18 +120,21 @@ def load(Battery_list=['CS2_35', 'CS2_36']):
     return Battery
 
 
-def load_from_pickle(train_size=55):
+def load_from_pickle(train_size=55,type='train'):
     dir_path = 'dataset/AIR'
     all_pkl = os.listdir(dir_path)
     print(f'Train size {train_size}, test size {len(all_pkl) - train_size}')
     random.shuffle(all_pkl) # random choose train set and test set
-    train_pkl = all_pkl[:2]
-    test_pkl = all_pkl[train_size:][:2]
-    print('Load Train Dataset ...')
-    train_batteries, train_names = generate_dataset_from_pkl(train_pkl)
-    print('Load Test Dataset ...')
-    test_batteries, test_names = generate_dataset_from_pkl(test_pkl)
-    return train_batteries, train_names, test_batteries, test_names
+    if type == 'train':
+        print('Load Train Dataset ...')
+        train_pkl = all_pkl[:train_size]
+        train_batteries, train_names = generate_dataset_from_pkl(train_pkl)
+        return train_batteries, train_names
+    else:
+        print('Load Test Dataset ...')
+        test_pkl = all_pkl[train_size:]
+        test_batteries, test_names = generate_dataset_from_pkl(test_pkl)
+        return test_batteries, test_names
     # print(len(train_pkl),len(test_pkl))
 
 
