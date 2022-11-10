@@ -16,9 +16,9 @@ def mae(x):
     return np.sum(abs(x) / len(x)).real
 
 
-f_test = open("./result/error/test.json", 'r')
+f_test = open("./result/error/test/2022-11-10 17:13:47.json", 'r')
 test_json = json.load(f_test)
-f_train = open("./result/error/train.json", 'r')
+f_train = open("./result/error/train/2022-11-10 17:13:47.json", 'r')
 train_json = json.load(f_train)
 
 test_errs = test_json.values()
@@ -81,4 +81,4 @@ fig.subplots_adjust(wspace=0.3,hspace=0.5)
 print(np.mean(test_relative))
 print(np.mean(train_relative))
 # fig.legend()
-fig.savefig("./err.png")
+fig.savefig("./result/error/err-2022-11-10 17:13:47.png")

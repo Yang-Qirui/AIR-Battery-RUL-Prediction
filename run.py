@@ -39,13 +39,14 @@ def get_train_test(data_dict, name, window_size=8):
     train_data, test_data = data_sequence[:window_size +
                                           1], data_sequence[window_size+1:]
     train_x, train_y = build_sequences(
-        text=train_data, window_size=window_size)
-    for k, v in data_dict.items():
-        if k != name or len(data_dict.keys()) == 1:
-            data_x, data_y = build_sequences(
-                text=v['capacity'], window_size=window_size)
-            train_x, train_y = np.r_[train_x, data_x], np.r_[train_y, data_y]
-
+        text=data_sequence, window_size=window_size)
+    # for k, v in data_dict.items():
+    #     if k != name or len(data_dict.keys()) == 1:
+    #         data_x, data_y = build_sequences(
+    #             text=v['capacity'], window_size=window_size)
+    #         train_x, train_y = np.r_[train_x, data_x], np.r_[train_y, data_y]
+    # print(train_x)
+    # print(train_y)
     return train_x, train_y, list(train_data), list(test_data)
 
 
@@ -81,119 +82,104 @@ def setup_seed(seed):
 
 
 def train(Battery, Battery_list=['CS2_35', 'CS2_36'], lr=0.01, feature_size=8, hidden_dim=32, num_layers=1, nhead=8, weight_decay=0.0, EPOCH=1000, seed=0,
-          alpha=0.0, noise_level=0.0, dropout=0.0, metric='re', batch_size=2):
+          alpha=0.0, noise_level=0.0, dropout=0.0, metric='re'):
     score_list, result_list = [], []
-    cnt = 0
-    while cnt < len(Battery_list):
-        if cnt + batch_size > len(Battery_list):
-            batch_battery_name = Battery_list[cnt:]
+    for i in range(len(Battery_list)):
+        name = Battery_list[i]
+        print(f"Training {name} ...")
+        window_size = feature_size
+        train_x, train_y, train_data, test_data = get_train_test(
+            Battery, name, window_size)
+        train_size = len(train_x)
+        print('sample size: {}'.format(train_size))
+        print('rated capacity: {}'.format(train_data[0]))
+        rated_capacity = train_data[0]
+        setup_seed(seed)
+        model = Transformer(feature_size=feature_size, hidden_dim=hidden_dim, num_layers=num_layers, nhead=nhead, dropout=dropout,
+                            noise_level=noise_level)
+        model = model.to(device)
+        optimizer = torch.optim.Adam(
+            model.parameters(), lr=lr, weight_decay=weight_decay)
+        criterion = nn.MSELoss()
+        '''
+        # save ramdom data for repetition
+        if torch.__version__.split('+')[0] >= '1.6.0':
+            torch.save(model.state_dict(), 'model_CALCE'+str(seed)+'.pth')
         else:
-            batch_battery_name = Battery_list[cnt:cnt + batch_size]
-        sub_battery = {key: value for key,
-                       value in Battery.items() if key in batch_battery_name}
-        for i in range(len(batch_battery_name)):
-            name = batch_battery_name[i]
-            print(f"Training {name} ...")
-            window_size = feature_size
-            train_x, train_y, train_data, test_data = get_train_test(
-                sub_battery, name, window_size)
-            train_size = len(train_x)
-            print('sample size: {}'.format(train_size))
-            print('rated capacity: {}'.format(train_data[0]))
-            rated_capacity = train_data[0]
-
-            setup_seed(seed)
-            model = Transformer(feature_size=feature_size, hidden_dim=hidden_dim, num_layers=num_layers, nhead=nhead, dropout=dropout,
-                                noise_level=noise_level)
-            model = model.to(device)
-            optimizer = torch.optim.Adam(
-                model.parameters(), lr=lr, weight_decay=weight_decay)
-            criterion = nn.MSELoss()
-
-            '''
-            # save ramdom data for repetition
-            if torch.__version__.split('+')[0] >= '1.6.0':
-                torch.save(model.state_dict(), 'model_CALCE'+str(seed)+'.pth')
+            torch.save(model.state_dict(), 'model_CALCE.pth', _use_new_zipfile_serialization=False)
+         '''
+        test_x = train_data.copy()
+        loss_list, y_ = [0], []
+        rmse, re = 1, 1
+        score_, score = [1], [1]
+        weight_mat = None
+        dist_old = None
+        for epoch in range(EPOCH):
+            # (batch_size, seq_len, input_size)
+            X = np.reshape(train_x/rated_capacity,
+                           (-1, 1, feature_size)).astype(np.float32)
+            # print(X.shape)
+            dist_mat = torch.zeros(num_layers, X.shape[1])
+            # shape 为 (batch_size, 1)
+            y = np.reshape(train_y[:, -1]/rated_capacity,
+                           (-1, 1)).astype(np.float32)
+            X, y = torch.from_numpy(X).to(
+                device), torch.from_numpy(y).to(device)
+            output, decode, list_encoding = model(X)
+            loss_adapt, dist, weight_mat = model.adapt_encoding_weight(
+                list_encoding, weight_mat)
+            dist_mat = dist_mat.to(device)
+            dist = dist.to(device)
+            dist_mat = dist_mat + dist
+            output = output.reshape(-1, 1)
+            loss = criterion(output, y) + alpha * \
+                criterion(decode, X.reshape(-1, feature_size)) \
+                + 0.5 * loss_adapt
+            # print(criterion(output,y),alpha * criterion(decode,X.reshape(-1,feature_size)),0.5 * loss_adapt)
+            optimizer.zero_grad()              # clear gradients for this training step
+            loss.backward()                    # backpropagation, compute gradients
+            optimizer.step()                   # apply gradients
+            if epoch > 0:
+                weight_mat = model.update_weight_Boosting(
+                    weight_mat, dist_old, dist_mat)
+            dist_old = dist_mat
+            if (epoch + 1) % 10 == 0:
+                test_x = train_data.copy()
+                point_list = []
+                while (len(test_x) - len(train_data)) < len(test_data):
+                    x = np.reshape(np.array(
+                        test_x[-feature_size:])/rated_capacity, (-1, 1, feature_size)).astype(np.float32)
+                    # print(x.shape)
+                    # (batch_size,feature_size=1,input_size)
+                    x = torch.from_numpy(x).to(device)
+                    # pred shape (batch_size=1, feature_size=1)
+                    pred, _, _ = model(x)
+                    next_point = pred.data.cpu().numpy()[
+                        0, 0] * rated_capacity
+                    # The test values are added to the original sequence to continue to predict the next point
+                    test_x.append(next_point)
+                    # Saves the predicted value of the last point in the output sequence
+                    point_list.append(next_point)
+                # Save all the predicted values
+                y_.append(point_list)
+                loss_list.append(loss)
+                rmse = evaluation(y_test=test_data, y_predict=y_[-1])
+                re = relative_error(
+                    y_test=test_data, y_predict=y_[-1], threshold=rated_capacity*0.7)
+                #print('epoch:{:<2d} | loss:{:<6.4f} | RMSE:{:<6.4f} | RE:{:<6.4f}'.format(epoch, loss, rmse, re))
+            if epoch % 100 == 0:
+                print(f"Epoch {epoch}, Done ...")
+            if metric == 're':
+                score = [re]
+            elif metric == 'rmse':
+                score = [rmse]
             else:
-                torch.save(model.state_dict(), 'model_CALCE.pth', _use_new_zipfile_serialization=False)
-             '''
-
-            test_x = train_data.copy()
-            loss_list, y_ = [0], []
-            rmse, re = 1, 1
-            score_, score = [1], [1]
-            weight_mat = None
-            dist_old = None
-            for epoch in range(EPOCH):
-
-                # (batch_size, seq_len, input_size)
-                X = np.reshape(train_x/rated_capacity,
-                               (-1, 1, feature_size)).astype(np.float32)
-                # print(X.shape)
-                dist_mat = torch.zeros(num_layers, X.shape[1])
-
-                # shape 为 (batch_size, 1)
-                y = np.reshape(train_y[:, -1]/rated_capacity,
-                               (-1, 1)).astype(np.float32)
-
-                X, y = torch.from_numpy(X).to(
-                    device), torch.from_numpy(y).to(device)
-                output, decode, list_encoding = model(X)
-                loss_adapt, dist, weight_mat = model.adapt_encoding_weight(
-                    list_encoding, weight_mat)
-                dist_mat = dist_mat.to(device)
-                dist = dist.to(device)
-                dist_mat = dist_mat + dist
-                output = output.reshape(-1, 1)
-                loss = criterion(output, y) + \
-                    criterion(decode, X.reshape(-1, feature_size)) \
-                    + alpha * loss_adapt
-                optimizer.zero_grad()              # clear gradients for this training step
-                loss.backward()                    # backpropagation, compute gradients
-                optimizer.step()                   # apply gradients
-                if epoch > 0:
-                    weight_mat = model.update_weight_Boosting(
-                        weight_mat, dist_old, dist_mat)
-                dist_old = dist_mat
-                if (epoch + 1) % 10 == 0:
-                    test_x = train_data.copy()
-                    point_list = []
-                    while (len(test_x) - len(train_data)) < len(test_data):
-                        x = np.reshape(np.array(
-                            test_x[-feature_size:])/rated_capacity, (-1, 1, feature_size)).astype(np.float32)
-                        # print(x.shape)
-                        # (batch_size,feature_size=1,input_size)
-                        x = torch.from_numpy(x).to(device)
-                        # pred shape (batch_size=1, feature_size=1)
-                        pred, _, _ = model(x)
-                        next_point = pred.data.cpu().numpy()[
-                            0, 0] * rated_capacity
-                        # The test values are added to the original sequence to continue to predict the next point
-                        test_x.append(next_point)
-                        # Saves the predicted value of the last point in the output sequence
-                        point_list.append(next_point)
-                    # Save all the predicted values
-                    y_.append(point_list)
-                    loss_list.append(loss)
-                    rmse = evaluation(y_test=test_data, y_predict=y_[-1])
-                    re = relative_error(
-                        y_test=test_data, y_predict=y_[-1], threshold=rated_capacity*0.7)
-                    #print('epoch:{:<2d} | loss:{:<6.4f} | RMSE:{:<6.4f} | RE:{:<6.4f}'.format(epoch, loss, rmse, re))
-                if epoch % 100 == 0:
-                    print(f"Epoch {epoch}, Done ...")
-                if metric == 're':
-                    score = [re]
-                elif metric == 'rmse':
-                    score = [rmse]
-                else:
-                    score = [re, rmse]
-                if (loss < 0.001) and (score_[0] < score[0]):
-                    break
-                score_ = score.copy()
-
-            score_list.append(score_)
-            result_list.append(y_[-1])
-        cnt += batch_size
+                score = [re, rmse]
+            if (loss < 0.0005) and (score_[0] < score[0]):
+                break
+            score_ = score.copy()
+        score_list.append(score_)
+        result_list.append(y_[-1])
     return score_list, result_list, model
 
 
@@ -351,19 +337,18 @@ def main():
     window_size = 100
     feature_size = window_size
     dropout = 0.0
-    EPOCH = 1000
+    EPOCH = 1500
     nhead = 25
     weight_decay = 0.0
     noise_level = 0.0
     alpha = 0.01
     lr = 0.0005    # learning rate
     hidden_dim = 64
-    num_layers = 1
+    num_layers = 2
     is_load_weights = False
     metric = 'rmse'
     train_size = 55
     terminal_rate = 0.8
-    batch_size = 5
 
     seed = 0
     SCORE = []
@@ -381,7 +366,7 @@ def main():
         print('seed:{}'.format(seed))
         score_list, result_list, model = train(Battery=train_batteries, Battery_list=train_names, lr=lr, feature_size=feature_size, hidden_dim=hidden_dim, num_layers=num_layers, nhead=nhead,
                                                weight_decay=weight_decay, EPOCH=EPOCH, seed=seed, dropout=dropout, alpha=alpha,
-                                               noise_level=noise_level, metric=metric, batch_size=batch_size)
+                                               noise_level=noise_level, metric=metric)
         print(np.array(score_list))
         print(metric + ': {:<6.4f}'.format(np.mean(np.array(score_list))))
         print('------------------------------------------------------------------')
@@ -391,7 +376,7 @@ def main():
         print(metric + ' mean: {:<6.4f}'.format(np.mean(np.array(SCORE))))
         print(len(result_list[0]))
 
-        torch.save(model, f"./result/model/adaTransformer-{s_time}-{:<6.4f}.pth".format(np.mean(np.array(SCORE))))
+        torch.save(model, "./result/model/adaTransformer-{}-{:<6.4f}.pth".format(s_time,np.mean(np.array(SCORE))))
     else:
         '''choose a version of model'''
         model = torch.load('./result/model/adaTransformer.pth')
