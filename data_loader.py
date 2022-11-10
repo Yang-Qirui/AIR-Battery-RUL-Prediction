@@ -120,21 +120,18 @@ def load(Battery_list=['CS2_35', 'CS2_36']):
     return Battery
 
 
-def load_from_pickle(train_size=55,type='train'):
+def load_from_pickle(train_size=55):
     dir_path = 'dataset/AIR'
     all_pkl = os.listdir(dir_path)
     print(f'Train size {train_size}, test size {len(all_pkl) - train_size}')
-    random.shuffle(all_pkl) # random choose train set and test set
-    if type == 'train':
-        print('Load Train Dataset ...')
-        train_pkl = all_pkl[:train_size]
-        train_batteries, train_names = generate_dataset_from_pkl(train_pkl)
-        return train_batteries, train_names
-    else:
-        print('Load Test Dataset ...')
-        test_pkl = all_pkl[train_size:]
-        test_batteries, test_names = generate_dataset_from_pkl(test_pkl)
-        return test_batteries, test_names
+    random.shuffle(all_pkl)  # random choose train set and test set
+    print('Load Train Dataset ...')
+    train_pkl = all_pkl[:train_size]
+    train_batteries, train_names = generate_dataset_from_pkl(train_pkl)
+    print('Load Test Dataset ...')
+    test_pkl = all_pkl[train_size:]
+    test_batteries, test_names = generate_dataset_from_pkl(test_pkl)
+    return train_batteries, train_names, test_batteries, test_names
     # print(len(train_pkl),len(test_pkl))
 
 
@@ -219,8 +216,8 @@ if __name__ == "__main__":
     train_batteries, train_names, test_batteries, test_names = load_from_pickle(
         train_size=55)
     fig = plt.figure()
-    ax = plt.subplot(1,2,1)
-    ax1 = plt.subplot(1,2,2)
+    ax = plt.subplot(1, 2, 1)
+    ax1 = plt.subplot(1, 2, 2)
     color_list = ['b:', 'g--', 'r-.', 'c:']
     for name, color in zip(train_names, color_list):
         battery = train_batteries[name]
@@ -230,7 +227,7 @@ if __name__ == "__main__":
     for name, color in zip(test_names, color_list):
         battery = test_batteries[name]
         ax1.plot(battery['cycle'], battery['capacity'],
-                color, label='Battery_'+name)
+                 color, label='Battery_'+name)
 
     ax.set(xlabel='Discharge cycles', ylabel='Discharge Capacity (mAh)')
     ax1.set(xlabel='Discharge cycles', ylabel='Discharge Capacity (mAh)')

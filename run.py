@@ -204,7 +204,7 @@ def train(Battery, Battery_list=['CS2_35', 'CS2_36'], lr=0.01, feature_size=8, h
     return score_list, result_list, model
 
 
-def predict(Battery, Battery_list, model, rated_capacity=1.1, feature_size=8):
+def predict(Battery, Battery_list, model, feature_size=8, terminal_rate=0.8):
     model.eval()
     with torch.no_grad():
         result_list = []
@@ -214,22 +214,19 @@ def predict(Battery, Battery_list, model, rated_capacity=1.1, feature_size=8):
             print(f"Testing {name} ...")
             train_data = list(
                 Battery[name]['capacity'][:window_size + 1])
-            # train_x, train_y, train_data, test_data = get_train_test(
-            #     Battery, name, window_size)
+            rated_capacity = Battery[name]['capacity'][0]
             aa = train_data.copy()
-            # print(len(train_data))
             pred_list = Battery[name]['capacity'][:window_size + 1].tolist()
-            while len(pred_list) < len(Battery[name]['capacity']):
-                # train_x = list(aa)
+            while pred_list[-1] > rated_capacity * terminal_rate or len(pred_list) < len(Battery[name]['capacity']):
                 X = np.reshape(np.array(
                     aa[-feature_size:])/rated_capacity, (-1, 1, feature_size)).astype(np.float32)
                 X = torch.from_numpy(X).to(device)
-                # print(X.shape)
                 pred, _, _ = model(X)
                 next_point = pred.data.cpu().numpy()[0, 0] * rated_capacity
-                # aa = aa.values.tolist()
                 aa.append(next_point)
                 pred_list.append(next_point)
+                if np.sum(np.array(pred_list) ** 2) / len(pred_list) < 0.1:
+                    break
             result_list.append(pred_list)
         return result_list
 
@@ -315,12 +312,54 @@ def get_optimal_params():
         min_key, states[min_key]))
 
 
+def save_result(batteries, battery_names, predict_results, error_dict, window_size=100, terminal_rate=0.8, type='train'):
+    for i in range(len(battery_names)):
+        name = battery_names[i]
+        battery = batteries[name]
+        fig, ax = plt.subplots(1, figsize=(12, 8))
+
+        ax.plot(battery['cycle'], battery['capacity'], 'b.', label=name)
+        ax.plot([x for x in range(len(predict_results[i]))], predict_results[i])
+
+        target_terminal_cycle = -1
+        pred_terminal_cycle = -1
+        for j, c in enumerate(battery['capacity']):
+            if c <= battery['capacity'][0] * terminal_rate:
+                target_terminal_cycle = j
+                break
+
+        if target_terminal_cycle < 0:
+            target_terminal_cycle = max(battery['cycle'].keys())
+
+        for j, c in enumerate(predict_results[i]):
+            if c <= battery['capacity'][0] * terminal_rate:
+                pred_terminal_cycle = j
+                break
+
+        if pred_terminal_cycle < 0:
+            pred_terminal_cycle = max(battery['cycle'].keys())
+
+        error_dict[name] = pred_terminal_cycle - target_terminal_cycle
+
+        plt.plot([min(battery['cycle'].keys()), max(battery['cycle'].keys())], [battery['capacity'][0] * terminal_rate, battery['capacity'][0] * terminal_rate],
+                 c='black', lw=1, ls='--')
+        plt.axvline(window_size)
+        ax.set(xlabel='Discharge cycles', ylabel='Capacity (Ah)')
+        ax.set_title(f'{type} case {name}. Error {error_dict[name]} cycle.')
+        plt.legend()
+        plt.savefig(f'./result/{type}/{name}.png')
+        plt.close()
+
+    with open(f'./result/error/{type}.json', 'w') as f:
+        json.dump(error_dict, f)
+
+
 def main():
-    window_size = 64
+    window_size = 100
     feature_size = window_size
     dropout = 0.0
     EPOCH = 1000
-    nhead = 16
+    nhead = 25
     weight_decay = 0.0
     noise_level = 0.0
     alpha = 0.01
@@ -334,116 +373,39 @@ def main():
 
     seed = 0
     SCORE = []
-    train_batteries, train_names = load_from_pickle(
-        train_size=train_size, type='train')
+    train_batteries, train_names, test_batteries, test_names = load_from_pickle(
+        train_size=train_size)
 
-    print('seed:{}'.format(seed))
-    score_list, result_list, model = train(Battery=train_batteries, Battery_list=train_names, lr=lr, feature_size=feature_size, hidden_dim=hidden_dim, num_layers=num_layers, nhead=nhead,
-                                           weight_decay=weight_decay, EPOCH=EPOCH, seed=seed, dropout=dropout, alpha=alpha,
-                                           noise_level=noise_level, metric=metric, is_load_weights=is_load_weights)
-    print(np.array(score_list))
-    print(metric + ': {:<6.4f}'.format(np.mean(np.array(score_list))))
-    print('------------------------------------------------------------------')
-    for s in score_list:
-        SCORE.append(s)
+    if not is_load_weights:
+        print('seed:{}'.format(seed))
+        score_list, result_list, model = train(Battery=train_batteries, Battery_list=train_names, lr=lr, feature_size=feature_size, hidden_dim=hidden_dim, num_layers=num_layers, nhead=nhead,
+                                               weight_decay=weight_decay, EPOCH=EPOCH, seed=seed, dropout=dropout, alpha=alpha,
+                                               noise_level=noise_level, metric=metric, is_load_weights=is_load_weights)
+        print(np.array(score_list))
+        print(metric + ': {:<6.4f}'.format(np.mean(np.array(score_list))))
+        print('------------------------------------------------------------------')
+        for s in score_list:
+            SCORE.append(s)
 
-    print(metric + ' mean: {:<6.4f}'.format(np.mean(np.array(SCORE))))
-    print(len(result_list[0]))
+        print(metric + ' mean: {:<6.4f}'.format(np.mean(np.array(SCORE))))
+        print(len(result_list[0]))
 
-    torch.save(model, "./result/model/adaTransformer.pth")
+        torch.save(model, "./result/model/adaTransformer.pth")
+    else:
+        model = torch.load('./result/model/adaTransformer.pth')
 
     train_error_dict = {}
     test_error_dict = {}
 
-    for i in range(len(train_names)):
-        name = train_names[i]
-        capacity = train_batteries[name]['capacity']
-        train_data = list(capacity[:window_size + 1])
+    predict_results = predict(train_batteries, train_names, model,
+                              feature_size=feature_size, terminal_rate=terminal_rate)
+    save_result(train_batteries, train_names, predict_results,
+                train_error_dict, type='train')
 
-        aa = train_data[:window_size + 1].copy()  # 第一个输入序列
-        [aa.append(a) for a in result_list[i]]  # 测试集预测结果
-
-        battery = train_batteries[name]
-        fig, ax = plt.subplots(1, figsize=(12, 8))
-        ax.plot(battery['cycle'], battery['capacity'], 'b.', label=name)
-        ax.plot(battery['cycle'], aa, 'r.', label='Prediction')
-
-        target_terminal_cycle = -1
-        pred_terminal_cycle = -1
-
-        for j, c in enumerate(battery['capacity']):
-            if c <= capacity[0] * terminal_rate:
-                target_terminal_cycle = j
-                break
-
-        if target_terminal_cycle < 0:
-            target_terminal_cycle = max(battery['cycle'].keys())
-
-        for j, c in enumerate(aa):
-            if c <= capacity[0] * terminal_rate:
-                pred_terminal_cycle = j
-                break
-
-        if pred_terminal_cycle < 0:
-            pred_terminal_cycle = max(battery['cycle'].keys())
-        
-        train_error_dict[name] = pred_terminal_cycle - target_terminal_cycle
-
-        plt.plot([min(battery['cycle'].keys()), max(battery['cycle'].keys())], [capacity[0] * terminal_rate, capacity[0]*terminal_rate],
-                 c='black', lw=1, ls='--')  # 临界点直线
-        plt.axvline(window_size)
-        ax.set(xlabel='Discharge cycles', ylabel='Capacity (Ah)')
-        ax.set_title(
-            f'Train case {name}. Error {train_error_dict[name]} cycle')
-        plt.legend()
-        plt.savefig(f'./result/train/{name}.png')
-
-    with open('./result/error/train.json', 'w') as f:
-        json.dump(train_error_dict, f)
-
-    test_batteries, test_names = load_from_pickle(
-        train_size=train_size, type='test')
     predict_results = predict(
-        test_batteries, test_names, model, feature_size=feature_size)
-
-    for i in range(len(test_names)):
-        name = test_names[i]
-        battery = test_batteries[name]
-        fig, ax = plt.subplots(1, figsize=(12, 8))
-
-        ax.plot(battery['cycle'], battery['capacity'], 'b.', label=name)
-        ax.plot(battery['cycle'], predict_results[i])
-
-        target_terminal_cycle = -1
-        pred_terminal_cycle = -1
-        for j, c in enumerate(battery['capacity']):
-            if c <= capacity[0] * terminal_rate:
-                target_terminal_cycle = j
-                break
-
-        if target_terminal_cycle < 0:
-            target_terminal_cycle = max(battery['cycle'].keys())
-
-        for j, c in enumerate(predict_results[i]):
-            if c <= capacity[0] * terminal_rate:
-                pred_terminal_cycle = j
-                break
-        
-        if pred_terminal_cycle < 0:
-            pred_terminal_cycle = max(battery['cycle'].keys())
-        
-        test_error_dict[name] = pred_terminal_cycle - target_terminal_cycle
-
-        plt.plot([min(battery['cycle'].keys()), max(battery['cycle'].keys())], [battery['capacity'][0] * terminal_rate, battery['capacity'][0] * terminal_rate],
-                 c='black', lw=1, ls='--')
-        plt.axvline(window_size)
-        ax.set(xlabel='Discharge cycles', ylabel='Capacity (Ah)')
-        ax.set_title(f'Test case {name}. Error {test_error_dict[name]} cycle.')
-        plt.legend()
-        plt.savefig(f'./result/test/{name}.png')
-
-    with open('./result/error/test.json', 'w') as f:
-        json.dump(test_error_dict, f)
+        test_batteries, test_names, model, feature_size=feature_size, terminal_rate=terminal_rate)
+    save_result(test_batteries, test_names, predict_results,
+                test_error_dict, type='test')
 
     print('Done ....')
 
