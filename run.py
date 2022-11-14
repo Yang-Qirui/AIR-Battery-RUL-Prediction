@@ -354,7 +354,7 @@ def main():
     SCORE = []
 
     s_time = int(round(time.time() * 1000))
-    s_time = time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(s_time / 1000))
+    s_time = time.strftime('%Y-%m-%d %H-%M-%S',time.localtime(s_time / 1000))
 
     train_batteries, train_names, test_batteries, test_names = load_from_pickle(
         train_size=train_size)
