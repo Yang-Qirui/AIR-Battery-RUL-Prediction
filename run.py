@@ -216,7 +216,7 @@ def predict(Battery, Battery_list, model, feature_size=8, terminal_rate=0.8):
                 next_point = pred.data.cpu().numpy()[0, 0] * rated_capacity
                 aa.append(next_point)
                 pred_list.append(next_point)
-                if np.sum(np.array(pred_list) ** 2) / len(pred_list) < 0.1:
+                if np.var(np.array(pred_list), axis=1) < 0.1 and len(pred_list) >= len(Battery[name]['capacity']):
                     break
             result_list.append(pred_list)
         return result_list
@@ -393,7 +393,7 @@ def main():
             print('Validating ...')
             val_loss = test(Battery=valid_batteries, Battery_list=valid_names,
                             model=model, feature_size=feature_size)
-            test_loss = test(Battery=test_batteries, Battery_list=test_names, 
+            test_loss = test(Battery=test_batteries, Battery_list=test_names,
                              model=model, feature_size=feature_size)
             print('Valid %.6f, Test %.6f' % (val_loss, test_loss))
             if val_loss < best_score:
