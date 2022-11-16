@@ -344,11 +344,11 @@ def save_result(batteries, battery_names, predict_results, error_dict, s_time, w
 
 
 def main():
-    window_size = 100
+    window_size = 64
     feature_size = window_size
     dropout = 0.0
     EPOCH = 200
-    nhead = 25
+    nhead = 16
     weight_decay = 0.0
     noise_level = 0.0
     alpha = 0.01
@@ -369,8 +369,7 @@ def main():
     train_batteries, train_names, valid_batteries, valid_names, test_batteries, test_names = load_from_pickle(
         train_size=train_size)
 
-    os.makedirs(f"./result/test/{s_time}")
-    os.makedirs(f"./result/train/{s_time}")
+
 
     if not is_load_weights:
         print('seed:{}'.format(seed))
@@ -395,11 +394,14 @@ def main():
             print('Valid %.6f, Test %.6f' % (val_loss, test_loss))
             if val_loss < best_score:
                 best_score = val_loss
-                torch.save(model, "./result/model/adaTransformer-{}-{:<6.4f}.pth".format(
-                    s_time, best_score))
+                torch.save(model, "./result/model/adaTransformer-{}.pth".format(
+                    s_time))
     else:
         '''choose a version of model'''
         model = torch.load('./result/model/adaTransformer.pth')
+
+    os.makedirs(f"./result/test/{s_time}")
+    os.makedirs(f"./result/train/{s_time}")
 
     train_error_dict = {}
     test_error_dict = {}
