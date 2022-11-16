@@ -35,8 +35,11 @@ def build_sequences(text, window_size):
 
 
 # leave-one-out evaluation: one battery is sampled randomly; the remainder are used for training.
-def get_train_test(data_dict, name, window_size=8):
-    data_sequence = data_dict[name]['capacity']
+def get_train_test(data_dict, name, window_size=8, train_on_test=False,pred_window_size=100):
+    if train_on_test:
+        data_sequence = data_dict[name]['capacity'][:pred_window_size]
+    else:
+        data_sequence = data_dict[name]['capacity']
     train_data, test_data = data_sequence[:window_size +
                                           1], data_sequence[window_size+1:]
     train_x, train_y = build_sequences(
@@ -83,7 +86,7 @@ def setup_seed(seed):
 
 
 def train(Battery, Battery_list, epoch, dist_old, weight_mat, model, optimizer, feature_size=8, len_seq=1, num_layers=1,
-          alpha=0.0):
+          alpha=0.0,pred_window_size=100,train_on_test=False):
     loss_list = []
     dist_mat = torch.zeros(num_layers, len_seq)
     for i in tqdm(range(len(Battery_list))):
@@ -91,7 +94,7 @@ def train(Battery, Battery_list, epoch, dist_old, weight_mat, model, optimizer, 
         # print(f"Training {name} ...")
         window_size = feature_size
         train_x, train_y, train_data, test_data = get_train_test(
-            Battery, name, window_size)
+            Battery, name, window_size,train_on_test=train_on_test,pred_window_size=pred_window_size)
         train_size = len(train_x)
         # print('sample size: {}'.format(train_size))
         # print('rated capacity: {}'.format(train_data[0]))
@@ -346,8 +349,10 @@ def save_result(batteries, battery_names, predict_results, error_dict, s_time, w
 def main():
     window_size = 64
     feature_size = window_size
+    pred_window_size = 100
     dropout = 0.0
     EPOCH = 200
+    EPOCH_ON_TEST = 20
     nhead = 16
     weight_decay = 0.0
     noise_level = 0.0
@@ -355,7 +360,7 @@ def main():
     lr = 0.0005    # learning rate
     hidden_dim = 64
     num_layers = 2
-    is_load_weights = False
+    is_load_weights = True
     metric = 'rmse'
     train_size = 55
     terminal_rate = 0.8
@@ -385,7 +390,7 @@ def main():
             print('Epoch:', epoch)
             print('Training ...')
             loss, weight_mat, dist_mat = train(Battery=train_batteries, Battery_list=train_names, epoch=epoch, model=model, optimizer=optimizer,
-                                               dist_old=dist_mat, weight_mat=weight_mat, feature_size=feature_size, num_layers=num_layers, alpha=alpha)
+                                               dist_old=dist_mat, weight_mat=weight_mat, feature_size=feature_size, num_layers=num_layers, alpha=alpha,pred_window_size=pred_window_size,train_on_test=False)
             print('Validating ...')
             val_loss = test(Battery=valid_batteries, Battery_list=valid_names,
                             model=model, feature_size=feature_size)
@@ -398,10 +403,19 @@ def main():
                     s_time))
     else:
         '''choose a version of model'''
-        model = torch.load('./result/model/adaTransformer.pth')
+        model = torch.load(
+            './result/model/adaTransformer-2022-11-15 23-52-03.pth')
+        optimizer = torch.optim.Adam(
+            model.parameters(), lr=lr, weight_decay=weight_decay)
 
     os.makedirs(f"./result/test/{s_time}")
     os.makedirs(f"./result/train/{s_time}")
+
+    for epoch in range(EPOCH_ON_TEST):
+
+        loss, weight_mat, dist_mat = train(Battery=test_batteries, Battery_list=test_batteries, epoch=epoch, model=model, optimizer=optimizer,
+                                       dist_old=dist_mat, weight_mat=weight_mat, feature_size=feature_size, num_layers=num_layers, alpha=alpha, pred_window_size=pred_window_size, train_on_test=True)
+        print('Train on test set %.6f' % (loss))
 
     train_error_dict = {}
     test_error_dict = {}
