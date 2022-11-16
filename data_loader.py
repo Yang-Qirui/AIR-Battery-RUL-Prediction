@@ -142,15 +142,12 @@ def load_from_pickle(train_size=55):
                 '2-5', '6-2', '3-1', '8-8', '8-1', '8-6', '7-6', '6-8', '7-5', '10-1']
     test_pkl = [x + '.pkl' for x in test_pkl]
     print('Load Train Dataset ...')
-    # train_pkl = all_pkl[:train_size]
     train_batteries, train_names = generate_dataset_from_pkl(train_pkl)
     print('Load Validation Dataset ...')
     valid_batteries, valid_names = generate_dataset_from_pkl(valid_pkl)
     print('Load Test Dataset ...')
-    # test_pkl = all_pkl[train_size:]
     test_batteries, test_names = generate_dataset_from_pkl(test_pkl)
     return train_batteries, train_names, valid_batteries, valid_names, test_batteries, test_names
-    # print(len(train_pkl),len(test_pkl))
 
 
 def generate_dataset_from_pkl(pkls):

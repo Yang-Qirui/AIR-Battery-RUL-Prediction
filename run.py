@@ -35,7 +35,7 @@ def build_sequences(text, window_size):
 
 
 # leave-one-out evaluation: one battery is sampled randomly; the remainder are used for training.
-def get_train_test(data_dict, name, window_size=8, train_on_test=False,pred_window_size=100):
+def get_train_test(data_dict, name, window_size=8, train_on_test=False, pred_window_size=100):
     if train_on_test:
         data_sequence = data_dict[name]['capacity'][:pred_window_size]
     else:
@@ -86,7 +86,7 @@ def setup_seed(seed):
 
 
 def train(Battery, Battery_list, epoch, dist_old, weight_mat, model, optimizer, feature_size=8, len_seq=1, num_layers=1,
-          alpha=0.0,pred_window_size=100,train_on_test=False):
+          alpha=0.0, pred_window_size=100, train_on_test=False):
     loss_list = []
     dist_mat = torch.zeros(num_layers, len_seq)
     for i in tqdm(range(len(Battery_list))):
@@ -94,7 +94,7 @@ def train(Battery, Battery_list, epoch, dist_old, weight_mat, model, optimizer, 
         # print(f"Training {name} ...")
         window_size = feature_size
         train_x, train_y, train_data, test_data = get_train_test(
-            Battery, name, window_size,train_on_test=train_on_test,pred_window_size=pred_window_size)
+            Battery, name, window_size, train_on_test=train_on_test, pred_window_size=pred_window_size)
         train_size = len(train_x)
         # print('sample size: {}'.format(train_size))
         # print('rated capacity: {}'.format(train_data[0]))
@@ -374,7 +374,8 @@ def main():
     train_batteries, train_names, valid_batteries, valid_names, test_batteries, test_names = load_from_pickle(
         train_size=train_size)
 
-
+    best_score = np.inf
+    weight_mat, dist_mat = None, None
 
     if not is_load_weights:
         print('seed:{}'.format(seed))
@@ -383,18 +384,16 @@ def main():
         model = model.to(device)
         optimizer = torch.optim.Adam(
             model.parameters(), lr=lr, weight_decay=weight_decay)
-        best_score = np.inf
-        weight_mat, dist_mat = None, None
 
         for epoch in range(EPOCH):
             print('Epoch:', epoch)
             print('Training ...')
             loss, weight_mat, dist_mat = train(Battery=train_batteries, Battery_list=train_names, epoch=epoch, model=model, optimizer=optimizer,
-                                               dist_old=dist_mat, weight_mat=weight_mat, feature_size=feature_size, num_layers=num_layers, alpha=alpha,pred_window_size=pred_window_size,train_on_test=False)
+                                               dist_old=dist_mat, weight_mat=weight_mat, feature_size=feature_size, num_layers=num_layers, alpha=alpha, pred_window_size=pred_window_size, train_on_test=False)
             print('Validating ...')
             val_loss = test(Battery=valid_batteries, Battery_list=valid_names,
                             model=model, feature_size=feature_size)
-            test_loss = test(Battery=test_batteries, Battery_list=test_names,
+            test_loss = test(Battery=test_batteries, Battery_list=test_names, 
                              model=model, feature_size=feature_size)
             print('Valid %.6f, Test %.6f' % (val_loss, test_loss))
             if val_loss < best_score:
@@ -413,8 +412,8 @@ def main():
 
     for epoch in range(EPOCH_ON_TEST):
 
-        loss, weight_mat, dist_mat = train(Battery=test_batteries, Battery_list=test_batteries, epoch=epoch, model=model, optimizer=optimizer,
-                                       dist_old=dist_mat, weight_mat=weight_mat, feature_size=feature_size, num_layers=num_layers, alpha=alpha, pred_window_size=pred_window_size, train_on_test=True)
+        loss, weight_mat, dist_mat = train(Battery=test_batteries, Battery_list=test_names, epoch=epoch, model=model, optimizer=optimizer,
+                                           dist_old=dist_mat, weight_mat=weight_mat, feature_size=feature_size, num_layers=num_layers, alpha=alpha, pred_window_size=pred_window_size, train_on_test=True)
         print('Train on test set %.6f' % (loss))
 
     train_error_dict = {}
