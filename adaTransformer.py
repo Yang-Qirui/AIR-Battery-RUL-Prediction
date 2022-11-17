@@ -21,7 +21,6 @@ class Autoencoder(nn.Module):
 
     def encoder(self, x):
         x = self.fc1(x)
-        print("fc",x.shape)
         h1 = F.relu(x)
         return h1
 
@@ -63,7 +62,7 @@ class PositionalEncoding(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, feature_size=16, hidden_dim=32, num_layers=1, nhead=8, dropout=0.0, noise_level=0.01):
+    def __init__(self, output_size, feature_size=16, hidden_dim=32, num_layers=1, nhead=8, dropout=0.0, noise_level=0.01):
         super(Transformer, self).__init__()
         self.auto_hidden = int(feature_size/2)
         # # Auto-encoder
@@ -81,13 +80,11 @@ class Transformer(nn.Module):
         )
         self.decoding = nn.TransformerDecoder(
             decoder_layers, num_layers=num_layers)
-        self.linear1 = nn.Linear(input_size, 1)
+        self.linear1 = nn.Linear(input_size, output_size)
         # self.linear2 = nn.Linear(int(input_size/2), 1)
 
     def forward(self, x):
         batch_size, feature_num, feature_size = x.shape
-        print("forward",x.shape)
-        print(x.reshape(batch_size * feature_num, -1).shape)
         encode, decode = self.autoencoder(
             x.reshape(batch_size, -1))  # batch_size*seq_len
         out = encode.reshape(batch_size, -1, self.auto_hidden)

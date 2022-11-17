@@ -144,7 +144,7 @@ def load_from_pickle(train_size=55):
     print('Load Train Dataset ...')
     train_batteries, train_names = generate_dataset_from_pkl(train_pkl[:1])
     print('Load Validation Dataset ...')
-    valid_batteries, valid_names = generate_dataset_from_pkl(valid_pkl[:0])
+    valid_batteries, valid_names = generate_dataset_from_pkl(valid_pkl[:1])
     print('Load Test Dataset ...')
     test_batteries, test_names = generate_dataset_from_pkl(test_pkl[:0])
     return train_batteries, train_names, valid_batteries, valid_names, test_batteries, test_names
