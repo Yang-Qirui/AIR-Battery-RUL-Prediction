@@ -21,6 +21,7 @@ class Autoencoder(nn.Module):
 
     def encoder(self, x):
         x = self.fc1(x)
+        print("fc",x.shape)
         h1 = F.relu(x)
         return h1
 
@@ -85,6 +86,8 @@ class Transformer(nn.Module):
 
     def forward(self, x):
         batch_size, feature_num, feature_size = x.shape
+        print("forward",x.shape)
+        print(x.reshape(batch_size * feature_num, -1).shape)
         encode, decode = self.autoencoder(
             x.reshape(batch_size, -1))  # batch_size*seq_len
         out = encode.reshape(batch_size, -1, self.auto_hidden)

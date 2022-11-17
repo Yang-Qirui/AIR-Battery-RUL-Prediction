@@ -51,7 +51,27 @@ def get_train_test(data_dict, name, window_size=8, train_on_test=False, pred_win
     #         train_x, train_y = np.r_[train_x, data_x], np.r_[train_y, data_y]
     # print(train_x)
     # print(train_y)
-    return train_x, train_y, list(train_data), list(test_data)
+    return train_x, train_y, list(train_data), list(test_data),train_data[0]
+
+
+def get_multi_train_test(data_dict, name, window_size=8, train_on_test=False, pred_window_size=100):
+    columns = data_dict[name].columns
+    train_xs, train_ys, train_datas, test_datas = [], [], [], []
+    rated_capacity = data_dict[name]['capacity'][0]
+    for column in columns:
+        if train_on_test:
+            data_sequence = data_dict[name][column][:pred_window_size]
+        else:
+            data_sequence = data_dict[name][column]
+        train_data, test_data = data_sequence[:window_size +
+                                              1], data_sequence[window_size + 1:]
+        train_x, train_y = build_sequences(
+            text=data_sequence, window_size=window_size)
+        train_xs.append(train_x.tolist())
+        train_ys.append(train_y.tolist())
+        train_datas.append(list(train_data))
+        test_datas.append(list(test_data))
+    return np.array(train_xs), np.array(train_ys), np.array(train_datas), np.array(test_datas),rated_capacity
 
 
 def relative_error(y_test, y_predict, threshold):
@@ -85,28 +105,31 @@ def setup_seed(seed):
         torch.backends.cudnn.deterministic = True
 
 
-def train(Battery, Battery_list, epoch, dist_old, weight_mat, model, optimizer, feature_size=8, len_seq=1, num_layers=1,
-          alpha=0.0, pred_window_size=100, train_on_test=False):
+def train(Battery, Battery_list, epoch, dist_old, weight_mat, model, optimizer, feature_size=8, num_layers=1,
+          alpha=0.0, pred_window_size=100, train_on_test=False,window_size=64):
     loss_list = []
-    dist_mat = torch.zeros(num_layers, len_seq)
+    dist_mat = torch.zeros(num_layers, 5)
     for i in tqdm(range(len(Battery_list))):
         name = Battery_list[i]
         # print(f"Training {name} ...")
-        window_size = feature_size
-        train_x, train_y, train_data, test_data = get_train_test(
+        train_x, train_y, _, _,rated_capacity = get_multi_train_test(
             Battery, name, window_size, train_on_test=train_on_test, pred_window_size=pred_window_size)
+        print("SHAPE:",train_x.shape)
         train_size = len(train_x)
         # print('sample size: {}'.format(train_size))
         # print('rated capacity: {}'.format(train_data[0]))
-        rated_capacity = train_data[0]
         criterion = nn.MSELoss()
-        # for epoch in range(EPOCH):
         # (batch_size, seq_len, input_size)
+        seq_len = train_x.shape[0]
+        # print(train_x.shape,train_y.shape)
         X = np.reshape(train_x/rated_capacity,
-                       (-1, 1, feature_size)).astype(np.float32)
+                       (-1, seq_len, window_size)).astype(np.float32)
+        print(X.shape)
         # shape 为 (batch_size, 1)
-        y = np.reshape(train_y[:, -1]/rated_capacity,
-                       (-1, 1)).astype(np.float32)
+        # print(train_y[:,:,-1],train_y[:,:,-1].shape)
+        y = np.reshape(train_y[:,:, -1]/rated_capacity,
+                       (-1, seq_len)).astype(np.float32)
+        print(y.shape)
         X, y = torch.from_numpy(X).to(
             device), torch.from_numpy(y).to(device)
         output, decode, list_encoding = model(X)
@@ -127,43 +150,6 @@ def train(Battery, Battery_list, epoch, dist_old, weight_mat, model, optimizer, 
         weight_mat = model.update_weight_Boosting(
             weight_mat, dist_old, dist_mat)
     loss = np.array(loss_list).mean(axis=0)
-    # if (epoch + 1) % 10 == 0:
-    #     test_x = train_data.copy()
-    #     point_list = []
-    #     while (len(test_x) - len(train_data)) < len(test_data):
-    #         x = np.reshape(np.array(
-    #             test_x[-feature_size:])/rated_capacity, (-1, 1, feature_size)).astype(np.float32)
-    #         # print(x.shape)
-    #         # (batch_size,feature_size=1,input_size)
-    #         x = torch.from_numpy(x).to(device)
-    #         # pred shape (batch_size=1, feature_size=1)
-    #         pred, _, _ = model(x)
-    #         next_point = pred.data.cpu().numpy()[
-    #             0, 0] * rated_capacity
-    #         # The test values are added to the original sequence to continue to predict the next point
-    #         test_x.append(next_point)
-    #         # Saves the predicted value of the last point in the output sequence
-    #         point_list.append(next_point)
-    #     # Save all the predicted values
-    #     y_.append(point_list)
-    #     loss_list.append(loss)
-    #     rmse = evaluation(y_test=test_data, y_predict=y_[-1])
-    #     re = relative_error(
-    #         y_test=test_data, y_predict=y_[-1], threshold=rated_capacity*0.7)
-    #     #print('epoch:{:<2d} | loss:{:<6.4f} | RMSE:{:<6.4f} | RE:{:<6.4f}'.format(epoch, loss, rmse, re))
-    # if epoch % 100 == 0:
-    #     print(f"Epoch {epoch}, Done ...")
-    # if metric == 're':
-    #     score = [re]
-    # elif metric == 'rmse':
-    #     score = [rmse]
-    # else:
-    #     score = [re, rmse]
-    # if (loss < 0.0005) and (score_[0] < score[0]):
-    #     break
-    # score_ = score.copy()
-    # score_list.append(score_)
-    # result_list.append(y_[-1])
     return loss, weight_mat, dist_mat
 
 
@@ -348,7 +334,7 @@ def save_result(batteries, battery_names, predict_results, error_dict, s_time, w
 
 def main():
     window_size = 64
-    feature_size = window_size
+    feature_size = window_size * 5
     pred_window_size = 100
     dropout = 0.0
     EPOCH = 200
@@ -360,7 +346,7 @@ def main():
     lr = 0.0005    # learning rate
     hidden_dim = 64
     num_layers = 2
-    is_load_weights = True
+    is_load_weights = False
     metric = 'rmse'
     train_size = 55
     terminal_rate = 0.8
@@ -389,7 +375,7 @@ def main():
             print('Epoch:', epoch)
             print('Training ...')
             loss, weight_mat, dist_mat = train(Battery=train_batteries, Battery_list=train_names, epoch=epoch, model=model, optimizer=optimizer,
-                                               dist_old=dist_mat, weight_mat=weight_mat, feature_size=feature_size, num_layers=num_layers, alpha=alpha, pred_window_size=pred_window_size, train_on_test=False)
+                                               dist_old=dist_mat, weight_mat=weight_mat, window_size=window_size,feature_size=feature_size, num_layers=num_layers, alpha=alpha, pred_window_size=pred_window_size, train_on_test=False)
             print('Validating ...')
             val_loss = test(Battery=valid_batteries, Battery_list=valid_names,
                             model=model, feature_size=feature_size)
