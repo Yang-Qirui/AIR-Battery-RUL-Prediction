@@ -69,7 +69,7 @@ def get_multi_train_test(data_dict, name, window_size=8, train_on_test=False, pr
         else:
             data_sequence = data_dict[name][column]
         train_data, test_data = data_sequence[:
-            window_size], data_sequence[window_size:]
+                                              window_size], data_sequence[window_size:]
         train_x, train_y = build_sequences(
             text=data_sequence, window_size=window_size)
 
@@ -124,13 +124,13 @@ def setup_seed(seed):
 def train(Battery, Battery_list, epoch, dist_old, weight_mat, model, optimizer, feature_size=8, num_layers=1,
           alpha=0.0, pred_window_size=100, train_on_test=False, window_size=64):
     loss_list = []
-    dist_mat = torch.zeros(num_layers, 5)
+    dist_mat = torch.zeros(num_layers,
+                           )
     for i in tqdm(range(len(Battery_list))):
         name = Battery_list[i]
         # print(f"Training {name} ...")
         train_x, train_y, _, _, norm_list = get_multi_train_test(
             Battery, name, window_size, train_on_test=train_on_test, pred_window_size=pred_window_size)
-        print("SHAPE:", train_x.shape)
         train_size = len(train_x)
         # print('sample size: {}'.format(train_size))
         # print('rated capacity: {}'.format(train_data[0]))
@@ -140,21 +140,20 @@ def train(Battery, Battery_list, epoch, dist_old, weight_mat, model, optimizer, 
         # print(train_x.shape,train_y.shape)
         X = np.reshape(train_x,
                        (-1, seq_len, window_size)).astype(np.float32)
-        print(X.shape)
         # shape 为 (batch_size, 1)
         # print(train_y[:,:,-1],train_y[:,:,-1].shape)
         y = np.reshape(train_y[:, :, -1],
                        (-1, seq_len)).astype(np.float32)
-        print(y.shape)
         X, y = torch.from_numpy(X).to(
             device), torch.from_numpy(y).to(device)
         output, decode, list_encoding = model(X)
         loss_adapt, dist, weight_mat = model.adapt_encoding_weight(
             list_encoding, weight_mat)
+        # print("weight_mat",weight_mat.shape)
         dist_mat = dist_mat.to(device)
         dist = dist.to(device)
         dist_mat = dist_mat + dist
-        print('model out', output.shape, decode.shape)
+        # print('model out', output.shape, decode.shape)
         # output = output.reshape(-1, 1)
         loss = criterion(output, y) + alpha * \
             criterion(decode, X.reshape(-1, feature_size)) \
@@ -189,38 +188,39 @@ def test(Battery, Battery_list, model, feature_size=8, window_size=64):
             x = torch.from_numpy(x).to(device)
             with torch.no_grad():
                 pred, _, _ = model(x)
-            print(pred.shape, pred)
-            test_x = np.column_stack((test_x, np.reshape(pred.cpu(), (seq_len, 1))))
+            # print(pred.shape, pred)
+            test_x = np.column_stack(
+                (test_x, np.reshape(pred.cpu(), (seq_len, 1))))
             # print('test_X1', test_x.shape)
         # print(len(test_x[len(train_data):]))
-        print(test_x[:,len(train_data):].shape)
-        print('test_data',test_data.shape)
-        loss=criterion(
-            torch.from_numpy(test_x[:,train_data.shape[1]:]), torch.from_numpy(test_data))
+        # print(test_x[:,len(train_data):].shape)
+        # print('test_data',test_data.shape)
+        loss = criterion(
+            torch.from_numpy(test_x[:, train_data.shape[1]:]), torch.from_numpy(test_data))
         total_loss += loss.item()
-    loss=total_loss / len(Battery_list)
+    loss = total_loss / len(Battery_list)
     return loss
 
 
 def predict(Battery, Battery_list, model, feature_size=8, terminal_rate=0.8):
     model.eval()
     with torch.no_grad():
-        result_list=[]
-        window_size=feature_size
+        result_list = []
+        window_size = feature_size
         for i in range(len(Battery_list)):
-            name=Battery_list[i]
+            name = Battery_list[i]
             print(f"Testing {name} ...")
-            train_data=list(
+            train_data = list(
                 Battery[name]['capacity'][:window_size + 1])
-            rated_capacity=Battery[name]['capacity'][0]
-            aa=train_data.copy()
-            pred_list=Battery[name]['capacity'][:window_size + 1].tolist()
+            rated_capacity = Battery[name]['capacity'][0]
+            aa = train_data.copy()
+            pred_list = Battery[name]['capacity'][:window_size + 1].tolist()
             while pred_list[-1] > rated_capacity * terminal_rate or len(pred_list) < len(Battery[name]['capacity']):
-                X=np.reshape(np.array(
+                X = np.reshape(np.array(
                     aa[-feature_size:])/rated_capacity, (-1, 1, feature_size)).astype(np.float32)
-                X=torch.from_numpy(X).to(device)
-                pred, _, _=model(X)
-                next_point=pred.data.cpu().numpy()[0, 0] * rated_capacity
+                X = torch.from_numpy(X).to(device)
+                pred, _, _ = model(X)
+                next_point = pred.data.cpu().numpy()[0, 0] * rated_capacity
                 aa.append(next_point)
                 pred_list.append(next_point)
                 if np.var(np.array(pred_list), axis=1) < 0.1 and len(pred_list) >= len(Battery[name]['capacity']):
@@ -264,32 +264,32 @@ rmse mean: 0.0690
 
 
 def get_optimal_params():
-    Rated_Capacity=1.1
-    window_size=64
-    feature_size=window_size
-    dropout=0.0
-    EPOCH=20
-    nhead=16
-    is_load_weights=False
-    weight_decay=0.0
-    noise_level=0.0
-    num_layers=1
-    metric='re'
+    Rated_Capacity = 1.1
+    window_size = 64
+    feature_size = window_size
+    dropout = 0.0
+    EPOCH = 20
+    nhead = 16
+    is_load_weights = False
+    weight_decay = 0.0
+    noise_level = 0.0
+    num_layers = 1
+    metric = 're'
 
-    Battery_list=['CS2_35', 'CS2_36']
-    Battery=load(Battery_list)
+    Battery_list = ['CS2_35', 'CS2_36']
+    Battery = load(Battery_list)
 
-    states={}
+    states = {}
     for lr in [1e-4, 5e-4, 1e-3, 1e-2]:
         for hidden_dim in [16, 32, 64]:
             for alpha in [1e-4, 1e-3, 1e-2]:
-                show_str='lr={}, num_layers={}, hidden_dim={}'.format(
+                show_str = 'lr={}, num_layers={}, hidden_dim={}'.format(
                     lr, num_layers, hidden_dim)
                 print(show_str)
-                SCORE=[]
+                SCORE = []
                 for seed in range(5):
                     print('seed:{}'.format(seed))
-                    score_list, _=train(Battery=Battery, Battery_list=Battery_list, lr=lr, feature_size=feature_size, hidden_dim=hidden_dim, num_layers=num_layers, nhead=nhead,
+                    score_list, _ = train(Battery=Battery, Battery_list=Battery_list, lr=lr, feature_size=feature_size, hidden_dim=hidden_dim, num_layers=num_layers, nhead=nhead,
                                           weight_decay=weight_decay, EPOCH=EPOCH, seed=seed, dropout=dropout, alpha=alpha,
                                           noise_level=noise_level, metric=metric, is_load_weights=is_load_weights)
                     print(np.array(score_list))
@@ -302,43 +302,43 @@ def get_optimal_params():
 
                 print(
                     metric + ' mean: {:<6.4f}'.format(np.mean(np.array(SCORE))))
-                states[show_str]=np.mean(np.array(SCORE))
+                states[show_str] = np.mean(np.array(SCORE))
                 print(
                     '===================================================================')
 
-    min_key=min(states, key=states.get)
+    min_key = min(states, key=states.get)
     print('optimal parameters: {}, result: {}'.format(
         min_key, states[min_key]))
 
 
 def save_result(batteries, battery_names, predict_results, error_dict, s_time, window_size=100, terminal_rate=0.8, type='train'):
     for i in range(len(battery_names)):
-        name=battery_names[i]
-        battery=batteries[name]
-        fig, ax=plt.subplots(1, figsize=(12, 8))
+        name = battery_names[i]
+        battery = batteries[name]
+        fig, ax = plt.subplots(1, figsize=(12, 8))
 
         ax.plot(battery['cycle'], battery['capacity'], 'b.', label=name)
         ax.plot([x for x in range(len(predict_results[i]))], predict_results[i])
 
-        target_terminal_cycle=-1
-        pred_terminal_cycle=-1
+        target_terminal_cycle = -1
+        pred_terminal_cycle = -1
         for j, c in enumerate(battery['capacity']):
             if c <= battery['capacity'][0] * terminal_rate:
-                target_terminal_cycle=j
+                target_terminal_cycle = j
                 break
 
         if target_terminal_cycle < 0:
-            target_terminal_cycle=max(battery['cycle'].keys())
+            target_terminal_cycle = max(battery['cycle'].keys())
 
         for j, c in enumerate(predict_results[i]):
             if c <= battery['capacity'][0] * terminal_rate:
-                pred_terminal_cycle=j
+                pred_terminal_cycle = j
                 break
 
         if pred_terminal_cycle < 0:
-            pred_terminal_cycle=max(battery['cycle'].keys())
+            pred_terminal_cycle = max(battery['cycle'].keys())
 
-        error_dict[name]=pred_terminal_cycle - target_terminal_cycle
+        error_dict[name] = pred_terminal_cycle - target_terminal_cycle
 
         plt.plot([min(battery['cycle'].keys()), max(battery['cycle'].keys())], [battery['capacity'][0] * terminal_rate, battery['capacity'][0] * terminal_rate],
                  c='black', lw=1, ls='--')
@@ -354,64 +354,64 @@ def save_result(batteries, battery_names, predict_results, error_dict, s_time, w
 
 
 def main():
-    window_size=64
-    feature_size=window_size * 5
-    pred_window_size=100
-    dropout=0.0
-    EPOCH=200
-    EPOCH_ON_TEST=20
-    nhead=16
-    weight_decay=0.0
-    noise_level=0.0
-    alpha=0.01
-    lr=0.0005    # learning rate
-    hidden_dim=64
-    num_layers=2
-    is_load_weights=False
-    metric='rmse'
-    train_size=55
-    terminal_rate=0.8
+    window_size = 64
+    feature_size = window_size * 5
+    pred_window_size = 100
+    dropout = 0.0
+    EPOCH = 200
+    EPOCH_ON_TEST = 20
+    nhead = 16
+    weight_decay = 0.0
+    noise_level = 0.0
+    alpha = 0.01
+    lr = 0.0005    # learning rate
+    hidden_dim = 64
+    num_layers = 2
+    is_load_weights = False
+    metric = 'rmse'
+    train_size = 55
+    terminal_rate = 0.8
 
-    seed=0
-    SCORE=[]
+    seed = 0
+    SCORE = []
 
-    s_time=int(round(time.time() * 1000))
-    s_time=time.strftime('%Y-%m-%d %H-%M-%S', time.localtime(s_time / 1000))
+    s_time = int(round(time.time() * 1000))
+    s_time = time.strftime('%Y-%m-%d %H-%M-%S', time.localtime(s_time / 1000))
 
-    train_batteries, train_names, valid_batteries, valid_names, test_batteries, test_names=load_from_pickle(
+    train_batteries, train_names, valid_batteries, valid_names, test_batteries, test_names = load_from_pickle(
         train_size=train_size)
 
-    best_score=np.inf
-    weight_mat, dist_mat=None, None
+    best_score = np.inf
+    weight_mat, dist_mat = None, None
 
     if not is_load_weights:
         print('seed:{}'.format(seed))
-        model=Transformer(feature_size=feature_size, hidden_dim=hidden_dim, num_layers=num_layers, nhead=nhead, dropout=dropout,
+        model = Transformer(feature_size=feature_size, hidden_dim=hidden_dim, num_layers=num_layers, nhead=nhead, dropout=dropout,
                             noise_level=noise_level, output_size=5)
-        model=model.to(device)
-        optimizer=torch.optim.Adam(
+        model = model.to(device)
+        optimizer = torch.optim.Adam(
             model.parameters(), lr=lr, weight_decay=weight_decay)
 
         for epoch in range(EPOCH):
             print('Epoch:', epoch)
             print('Training ...')
-            loss, weight_mat, dist_mat=train(Battery=train_batteries, Battery_list=train_names, epoch=epoch, model=model, optimizer=optimizer,
+            loss, weight_mat, dist_mat = train(Battery=train_batteries, Battery_list=train_names, epoch=epoch, model=model, optimizer=optimizer,
                                                dist_old=dist_mat, weight_mat=weight_mat, window_size=window_size, feature_size=feature_size, num_layers=num_layers, alpha=alpha, pred_window_size=pred_window_size, train_on_test=False)
             print('Validating ...')
-            val_loss=test(Battery=valid_batteries, Battery_list=valid_names,
+            val_loss = test(Battery=valid_batteries, Battery_list=valid_names,
                             model=model, feature_size=feature_size, window_size=window_size)
-            test_loss=test(Battery=test_batteries, Battery_list=test_names,
+            test_loss = test(Battery=test_batteries, Battery_list=test_names,
                              model=model, feature_size=feature_size, window_size=window_size)
             print('Valid %.6f, Test %.6f' % (val_loss, test_loss))
             if val_loss < best_score:
-                best_score=val_loss
+                best_score = val_loss
                 torch.save(model, "./result/model/adaTransformer-{}.pth".format(
                     s_time))
     else:
         '''choose a version of model'''
-        model=torch.load(
+        model = torch.load(
             './result/model/adaTransformer-2022-11-15 23-52-03.pth')
-        optimizer=torch.optim.Adam(
+        optimizer = torch.optim.Adam(
             model.parameters(), lr=lr, weight_decay=weight_decay)
 
     os.makedirs(f"./result/test/{s_time}")
@@ -419,19 +419,19 @@ def main():
 
     for epoch in range(EPOCH_ON_TEST):
 
-        loss, weight_mat, dist_mat=train(Battery=test_batteries, Battery_list=test_names, epoch=epoch, model=model, optimizer=optimizer,
+        loss, weight_mat, dist_mat = train(Battery=test_batteries, Battery_list=test_names, epoch=epoch, model=model, optimizer=optimizer,
                                            dist_old=dist_mat, weight_mat=weight_mat, feature_size=feature_size, num_layers=num_layers, alpha=alpha, pred_window_size=pred_window_size, train_on_test=True)
         print('Train on test set %.6f' % (loss))
 
-    train_error_dict={}
-    test_error_dict={}
+    train_error_dict = {}
+    test_error_dict = {}
 
-    predict_results=predict(train_batteries, train_names, model,
+    predict_results = predict(train_batteries, train_names, model,
                               feature_size=feature_size, terminal_rate=terminal_rate)
     save_result(train_batteries, train_names, predict_results,
                 train_error_dict, s_time, type='train')
 
-    predict_results=predict(
+    predict_results = predict(
         test_batteries, test_names, model, feature_size=feature_size, terminal_rate=terminal_rate)
     save_result(test_batteries, test_names, predict_results,
                 test_error_dict, s_time, type='test')

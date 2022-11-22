@@ -91,6 +91,7 @@ class Transformer(nn.Module):
         # decode = x.reshape(batch_size, -1)
         # out = x
         out = self.pos(out)
+        # print("out",out.shape)
         # shape (1, batch_size, feature_size)
         list_encode = out
         list_encoding = []
@@ -106,8 +107,10 @@ class Transformer(nn.Module):
 
     def adapt_encoding_weight(self, list_encoding, weight_mat=None):
         loss_all = torch.zeros(1).cuda()
-        len_seq = list_encoding[0].shape[1]
+        # print("list_encoding",len(list_encoding),list_encoding[0].shape)
         num_layers = len(list_encoding)
+        # len_seq = list_encoding[0].shape[1]
+        len_seq = num_layers
         if weight_mat is None:
             weight = (1.0 / len_seq *
                       torch.ones(num_layers, len_seq)).cuda()
@@ -137,7 +140,10 @@ class Transformer(nn.Module):
         epsilon = 1e-12
         dist_old = dist_old.detach()
         dist_new = dist_new.detach()
+        # print("dist",dist_old.shape,dist_new.shape)
+        # print("weight",weight_mat.shape)
         ind = dist_new > dist_old + epsilon
+
         weight_mat[ind] = weight_mat[ind] * \
             (1 + torch.sigmoid(dist_new[ind] - dist_old[ind]))
         weight_norm = torch.norm(weight_mat, dim=1, p=1)
