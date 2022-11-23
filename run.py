@@ -40,8 +40,7 @@ def get_train_test(data_dict, name, window_size=8, train_on_test=False, pred_win
         data_sequence = data_dict[name]['capacity'][:pred_window_size]
     else:
         data_sequence = data_dict[name]['capacity']
-    train_data, test_data = data_sequence[:window_size +
-                                          1], data_sequence[window_size+1:]
+    train_data, test_data = data_sequence[:window_size], data_sequence[window_size:]
     train_x, train_y = build_sequences(
         text=data_sequence, window_size=window_size)
     # for k, v in data_dict.items():
@@ -202,28 +201,33 @@ def test(Battery, Battery_list, model, feature_size=8, window_size=64):
     return loss
 
 
-def predict(Battery, Battery_list, model, feature_size=8, terminal_rate=0.8):
+def predict(Battery, Battery_list, model, feature_size=8,window_size=64, terminal_rate=0.8):
     model.eval()
+    result_list = []
     with torch.no_grad():
-        result_list = []
-        window_size = feature_size
         for i in range(len(Battery_list)):
             name = Battery_list[i]
             print(f"Testing {name} ...")
-            train_data = list(
-                Battery[name]['capacity'][:window_size + 1])
-            rated_capacity = Battery[name]['capacity'][0]
+            _,_,train_data,test_data,norm_list = get_multi_train_test(Battery,name,window_size=window_size)
+            # train_data = list(
+            #     Battery[name]['capacity'][:window_size + 1])
+            seq_len = len(norm_list)
             aa = train_data.copy()
-            pred_list = Battery[name]['capacity'][:window_size + 1].tolist()
-            while pred_list[-1] > rated_capacity * terminal_rate or len(pred_list) < len(Battery[name]['capacity']):
+            pred_list = aa[1].tolist() # capacity is at index 1. maybe need to modify
+            print(aa[:,-1],len(pred_list))
+            while pred_list[-1] > terminal_rate or len(pred_list) < len(Battery[name]['capacity']):
                 X = np.reshape(np.array(
-                    aa[-feature_size:])/rated_capacity, (-1, 1, feature_size)).astype(np.float32)
+                    aa[:,-window_size:]), (-1, seq_len, window_size)).astype(np.float32)
                 X = torch.from_numpy(X).to(device)
                 pred, _, _ = model(X)
-                next_point = pred.data.cpu().numpy()[0, 0] * rated_capacity
-                aa.append(next_point)
-                pred_list.append(next_point)
-                if np.var(np.array(pred_list), axis=1) < 0.1 and len(pred_list) >= len(Battery[name]['capacity']):
+                next_point = np.reshape(pred.cpu(), (seq_len, 1))
+                aa = np.column_stack(
+                (aa, next_point))
+                pred_list.append(next_point[1]) # capacity is at index 1. maybe need to modify
+                mean = sum(pred_list[-window_size:]) / window_size
+                sqr_error = [(x-mean)**2 for x in pred_list[-window_size:]]
+                var = sum(sqr_error) / window_size
+                if var < 0.1 and len(pred_list) >= len(Battery[name]['capacity']):
                     break
             result_list.append(pred_list)
         return result_list
@@ -358,7 +362,7 @@ def main():
     feature_size = window_size * 5
     pred_window_size = 100
     dropout = 0.0
-    EPOCH = 200
+    EPOCH = 1
     EPOCH_ON_TEST = 20
     nhead = 16
     weight_decay = 0.0
@@ -417,22 +421,22 @@ def main():
     os.makedirs(f"./result/test/{s_time}")
     os.makedirs(f"./result/train/{s_time}")
 
-    for epoch in range(EPOCH_ON_TEST):
+    # for epoch in range(EPOCH_ON_TEST):
 
-        loss, weight_mat, dist_mat = train(Battery=test_batteries, Battery_list=test_names, epoch=epoch, model=model, optimizer=optimizer,
-                                           dist_old=dist_mat, weight_mat=weight_mat, feature_size=feature_size, num_layers=num_layers, alpha=alpha, pred_window_size=pred_window_size, train_on_test=True)
-        print('Train on test set %.6f' % (loss))
+    #     loss, weight_mat, dist_mat = train(Battery=test_batteries, Battery_list=test_names, epoch=epoch, model=model, optimizer=optimizer,
+    #                                        dist_old=dist_mat, weight_mat=weight_mat, feature_size=feature_size, num_layers=num_layers, alpha=alpha, pred_window_size=pred_window_size, train_on_test=True)
+    #     print('Train on test set %.6f' % (loss))
 
     train_error_dict = {}
     test_error_dict = {}
 
     predict_results = predict(train_batteries, train_names, model,
-                              feature_size=feature_size, terminal_rate=terminal_rate)
+                              feature_size=feature_size, terminal_rate=terminal_rate,window_size=window_size)
     save_result(train_batteries, train_names, predict_results,
                 train_error_dict, s_time, type='train')
 
     predict_results = predict(
-        test_batteries, test_names, model, feature_size=feature_size, terminal_rate=terminal_rate)
+        test_batteries, test_names, model, feature_size=feature_size, terminal_rate=terminal_rate,window_size=window_size)
     save_result(test_batteries, test_names, predict_results,
                 test_error_dict, s_time, type='test')
 
