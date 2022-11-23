@@ -321,8 +321,9 @@ def save_result(batteries, battery_names, predict_results, error_dict, s_time, w
         battery = batteries[name]
         fig, ax = plt.subplots(1, figsize=(12, 8))
 
+        rated_capacity = battery['capacity'][0]
         ax.plot(battery['cycle'], battery['capacity'], 'b.', label=name)
-        ax.plot([x for x in range(len(predict_results[i]))], predict_results[i])
+        ax.plot([x for x in range(len(predict_results[i]))], [x * rated_capacity for x in predict_results[i]])
 
         target_terminal_cycle = -1
         pred_terminal_cycle = -1
@@ -335,7 +336,7 @@ def save_result(batteries, battery_names, predict_results, error_dict, s_time, w
             target_terminal_cycle = max(battery['cycle'].keys())
 
         for j, c in enumerate(predict_results[i]):
-            if c <= battery['capacity'][0] * terminal_rate:
+            if c <= terminal_rate:
                 pred_terminal_cycle = j
                 break
 
