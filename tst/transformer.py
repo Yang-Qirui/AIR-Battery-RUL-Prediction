@@ -62,7 +62,7 @@ class Transformer(nn.Module):
                  N: int,
                  attention_size: int = None,
                  dropout: float = 0.3,
-                 chunk_mode: str = None,
+                 chunk_mode: str = 'chunk',
                  pe: str = None,
                  pe_period: int = 24):
         """Create transformer structure from Encoder and Decoder blocks."""
@@ -104,7 +104,7 @@ class Transformer(nn.Module):
 
         self.name = 'transformer'
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor):
         """Propagate input through transformer
 
         Forward input through an embedding module,
@@ -139,6 +139,7 @@ class Transformer(nn.Module):
             encoding = layer(encoding)
             list_encoding.append(encoding)
 
+        print(encoding.shape)
         # Decoding stack
         decoding = encoding
 
@@ -151,36 +152,21 @@ class Transformer(nn.Module):
         for layer in self.layers_decoding:
             decoding = layer(decoding, encoding)
 
+        print(decoding.shape)
+        print(decoding)
         # Output module
         output = self._linear(decoding)
         output = torch.sigmoid(output)
+        print(output.shape)
+        print(output)
+        return
         return output, list_encoding
 
-    # def adapt_encoding(self, list_encoding, loss_type, train_type):
-    #     ## train_type "last" : last hidden, "all": all hidden
-    #     loss_all = torch.zeros(1).cuda()
-    #     for i in range(len(list_encoding)):
-    #         data = list_encoding[i]
-    #         data_s = data[0:len(data)//2]
-    #         data_t = data[len(data)//2:]
-    #         criterion_transder = TransferLoss(
-    #             loss_type=loss_type, input_dim=data_s.shape[2])
-    #         if train_type == 'last':
-    #             loss_all = loss_all + criterion_transder.compute(
-    #                     data_s[:, -1, :], data_t[:, -1, :])
-    #         elif train_type == "all":
-    #             for j in range(data_s.shape[1]):
-    #                 loss_all = loss_all + criterion_transder.compute(data_s[:, j, :], data_t[:, j, :])
-    #         else:
-    #             print("adapt loss error!")
-    #     return loss_all
 
-
-    def adapt_encoding_weight(self, list_encoding, loss_type, train_type='all', weight_mat=None):
+    def adapt_encoding_weight(self, list_encoding, loss_type, train_type, weight_mat=None):
         loss_all = torch.zeros(1).cuda()
         len_seq = list_encoding[0].shape[1]
         num_layers = len(list_encoding)
-        # print(loss_all,len_seq,num_layers)
         if weight_mat is None:
             weight = (1.0 / len_seq *
                       torch.ones(num_layers, len_seq)).cuda()
@@ -198,12 +184,9 @@ class Transformer(nn.Module):
                 loss_all = loss_all + criterion_transder.compute(
                         data_s[:, -1, :], data_t[:, -1, :])
             elif train_type == "all":
-                # print(data_s.shape,data_s,data_t.shape,data_t)
                 for j in range(data_s.shape[1]):
                     loss_transfer = criterion_transder.compute(data_s[:, j, :], data_t[:, j, :])
-                    # print(loss_transfer)
                     loss_all = loss_all + weight[i, j] * loss_transfer
-                    # print('LOSS',loss_all)
                     dist_mat[i, j] = loss_transfer 
             else:
                 print("adapt loss error!")
