@@ -220,7 +220,7 @@ def generate_dataset_from_pkl(pkls):
             'capacity': discharge_capacities[idx],
             'SoH': health_indicator[idx],
             'CCCT': CCCT[idx],
-            'CVCT': CVCT[idx]
+            # 'CVCT': CVCT[idx]
         })
         # print(df_result)
         Battery[pkl_path.split(".")[0]] = df_result

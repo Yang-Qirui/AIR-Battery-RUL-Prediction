@@ -57,36 +57,33 @@ def normalization(array, maximum, minimum):
     return (array - minimum) / (maximum - minimum)
 
 
+def minmax_norm(df):
+    return (df - df.min()) / (df.max() - df.min())
+
+
 def get_multi_train_test(data_dict, name, window_size=8, train_on_test=False, pred_window_size=100):
-    columns = data_dict[name].columns
-    train_xs, train_ys, train_datas, test_datas = [], [], [], []
-    rated_capacity = data_dict[name]['capacity'][0]
-    norm_list = []
-    for column in columns:
-        if train_on_test:
-            data_sequence = data_dict[name][column][:pred_window_size]
-        else:
-            data_sequence = data_dict[name][column]
-        train_data, test_data = data_sequence[:
-                                              window_size], data_sequence[window_size:]
-        train_x, train_y = build_sequences(
-            text=data_sequence, window_size=window_size)
+    train_xs, train_ys = [], []
+    norm_list = [(data_dict[name]['capacity'].max(),
+                  data_dict[name]['capacity'].min())]
 
-        data_max = data_sequence.max()
-        data_min = data_sequence.min()
-        train_x = normalization(train_x, data_max, data_min)
-        train_y = normalization(train_y, data_max, data_min)
-        train_data = normalization(train_data, data_max, data_min)
-        test_data = normalization(test_data, data_max, data_min)
+    df = minmax_norm(data_dict[name])
 
-        norm_list.append((data_max, data_min))
+    for i in range(len(df['capacity']) - window_size):
+        train_x = df[i:i + window_size]
+        # print(train_x.values)
+        train_y = df[i + 1: i + 1 + window_size]
 
-        train_xs.append(train_x.tolist())
-        train_ys.append(train_y.tolist())
-        train_datas.append(list(train_data))
-        test_datas.append(list(test_data))
+        train_xs.append(train_x.values.tolist())
+        train_ys.append(train_y.values.tolist())
 
-    return np.array(train_xs), np.array(train_ys), np.array(train_datas), np.array(test_datas), norm_list
+    # print(train_xs)
+    train_xs = np.array(train_xs)
+    train_ys = np.array(train_ys)
+    train_datas = np.array([df[:window_size]])
+    test_datas = np.array([df[window_size:]])
+    # print('MULTI SHAPE',train_xs.shape,train_datas.shape)
+
+    return train_xs, train_ys, train_datas, test_datas, norm_list
 
 
 def relative_error(y_test, y_predict, threshold):
@@ -121,46 +118,40 @@ def setup_seed(seed):
 
 
 def train(Battery, Battery_list, epoch, dist_old, weight_mat, model, optimizer, feature_size=8, num_layers=1,
-          alpha=0.0, pred_window_size=100, train_on_test=False, window_size=64):
+          alpha=0.0, pred_window_size=100, train_on_test=False, window_size=64, batch_size=4):
     loss_list = []
-    dist_mat = torch.zeros(num_layers,
+    dist_mat = torch.zeros(num_layers, window_size,
                            )
     for i in tqdm(range(len(Battery_list))):
         name = Battery_list[i]
-        # print(f"Training {name} ...")
         train_x, train_y, _, _, norm_list = get_multi_train_test(
             Battery, name, window_size, train_on_test=train_on_test, pred_window_size=pred_window_size)
-        train_size = len(train_x)
-        # print('sample size: {}'.format(train_size))
-        # print('rated capacity: {}'.format(train_data[0]))
-        criterion = nn.MSELoss()
-        # (batch_size, seq_len, input_size)
-        seq_len = train_x.shape[0]
-        # print(train_x.shape,train_y.shape)
-        X = np.reshape(train_x,
-                       (-1, seq_len, window_size)).astype(np.float32)
-        # shape 为 (batch_size, 1)
-        # print(train_y[:,:,-1],train_y[:,:,-1].shape)
-        y = np.reshape(train_y[:, :, -1],
-                       (-1, seq_len)).astype(np.float32)
-        X, y = torch.from_numpy(X).to(
-            device), torch.from_numpy(y).to(device)
-        output, decode, list_encoding = model(X)
-        loss_adapt, dist, weight_mat = model.adapt_encoding_weight(
-            list_encoding, weight_mat)
-        # print("weight_mat",weight_mat.shape)
-        dist_mat = dist_mat.to(device)
-        dist = dist.to(device)
-        dist_mat = dist_mat + dist
-        # print('model out', output.shape, decode.shape)
-        # output = output.reshape(-1, 1)
-        loss = criterion(output, y) + alpha * \
-            criterion(decode, X.reshape(-1, feature_size)) \
-            + 0.5 * loss_adapt
-        optimizer.zero_grad()              # clear gradients for this training step
-        loss.backward()                    # backpropagation, compute gradients
-        optimizer.step()                   # apply gradients
-        loss_list.append(loss.item())
+        print('sample size: {}'.format(len(train_x)))
+        for i in tqdm(range(0, len(train_x), batch_size), colour='green'):
+            source = train_x[i:i + batch_size]
+            target = train_y[i:i + batch_size]
+            _batch_size = len(source)
+            criterion = nn.MSELoss()
+            # (batch_size, seq_len, input_size)
+            X = source.astype(np.float32)
+            y = target.astype(np.float32)
+
+            X, y = torch.from_numpy(X).to(
+                device), torch.from_numpy(y).to(device)
+            output, list_encoding = model(X)
+           
+            loss_adapt, dist, weight_mat = model.adapt_encoding_weight(
+                list_encoding, loss_type='cosine', weight_mat=weight_mat)
+
+            dist_mat = dist_mat.to(device)
+            dist = dist.to(device)
+            dist_mat = dist_mat + dist
+
+            loss = criterion(output, y)
+            optimizer.zero_grad()              # clear gradients for this training step
+            loss.backward()                    # backpropagation, compute gradients
+            optimizer.step()                   # apply gradients
+            loss_list.append(loss.item())
     if epoch > 0:
         weight_mat = model.update_weight_Boosting(
             weight_mat, dist_old, dist_mat)
@@ -178,22 +169,17 @@ def test(Battery, Battery_list, model, feature_size=8, window_size=64):
             Battery, name, window_size=window_size)
         seq_len = train_x.shape[0]
         test_x = train_data.copy()
-        # print(test_x.shape)
-        # print('test', len(test_data))
+        print('shape', test_x.shape, test_data.shape)
         while (test_x.shape[1] - train_data.shape[1]) < test_data.shape[1]:
-            # print('test_X', test_x.shape)
             x = np.reshape(
                 test_x[:, -window_size:], (-1, seq_len, window_size)).astype(np.float32)
             x = torch.from_numpy(x).to(device)
             with torch.no_grad():
-                pred, _, _ = model(x)
-            # print(pred.shape, pred)
+                pred, _ = model(x)
+            print(pred.shape, pred)
+
             test_x = np.column_stack(
                 (test_x, np.reshape(pred.cpu(), (seq_len, 1))))
-            # print('test_X1', test_x.shape)
-        # print(len(test_x[len(train_data):]))
-        # print(test_x[:,len(train_data):].shape)
-        # print('test_data',test_data.shape)
         loss = criterion(
             torch.from_numpy(test_x[:, train_data.shape[1]:]), torch.from_numpy(test_data))
         total_loss += loss.item()
@@ -208,28 +194,41 @@ def predict(Battery, Battery_list, model, feature_size=8,window_size=64, termina
         for i in range(len(Battery_list)):
             name = Battery_list[i]
             print(f"Testing {name} ...")
-            _,_,train_data,test_data,norm_list = get_multi_train_test(Battery,name,window_size=window_size)
+            _, _, train_data, test_data, norm_list = get_multi_train_test(
+                Battery, name, window_size=window_size)
+            # print('shape',train_data.shape,test_data.shape)
             # train_data = list(
             #     Battery[name]['capacity'][:window_size + 1])
             seq_len = len(norm_list)
             aa = train_data.copy()
-            pred_list = aa[1].tolist() # capacity is at index 1. maybe need to modify
-            print(aa[:,-1],len(pred_list))
-            while pred_list[-1] > terminal_rate or len(pred_list) < len(Battery[name]['capacity']):
-                X = np.reshape(np.array(
-                    aa[:,-window_size:]), (-1, seq_len, window_size)).astype(np.float32)
+            # capacity is at index 0. maybe need to modify
+            pred_list = []
+            next_point = -np.inf
+            # print(aa[:,:, -window_size:])
+            # return
+            while len(pred_list) < len(Battery[name]['capacity']) or next_point > terminal_rate:
+                X = aa[:, :, -window_size:].astype(np.float32)
                 X = torch.from_numpy(X).to(device)
-                pred, _, _ = model(X)
-                next_point = np.reshape(pred.cpu(), (seq_len, 1))
-                aa = np.column_stack(
-                (aa, next_point))
-                pred_list.append(next_point[1]) # capacity is at index 1. maybe need to modify
+                pred, _ = model(X)
+                print(pred)
+                next_point = np.reshape(pred[:,-1,:].cpu(),(-1, feature_size))
+                print(next_point)
+                aa = np.reshape(
+                    np.r_[aa[-1], next_point], (1, -1, feature_size))
+                # capacity is at index 0. maybe need to modify
+                # print(next_point)
+                # next_point = np.reshape(next_point, (-1, feature_size))
+                pred_list.append(next_point[0].item())
                 mean = sum(pred_list[-window_size:]) / window_size
                 sqr_error = [(x-mean)**2 for x in pred_list[-window_size:]]
                 var = sum(sqr_error) / window_size
                 if var < 0.1 and len(pred_list) >= len(Battery[name]['capacity']):
                     break
-            result_list.append(pred_list)
+                # print(pred_list[-1],norm_list[1])
+            pred = [x * (norm_list[1][0] - norm_list[1][1]) +
+                    norm_list[1][1] for x in pred_list]
+
+            result_list.append(pred)
         return result_list
 
 
@@ -359,11 +358,11 @@ def save_result(batteries, battery_names, predict_results, error_dict, s_time, w
 
 
 def main():
-    window_size = 64
-    feature_size = window_size * 5
+    window_size = 24
+    features_num = 2
     pred_window_size = 100
     dropout = 0.0
-    EPOCH = 1
+    EPOCH = 3
     EPOCH_ON_TEST = 20
     nhead = 16
     weight_decay = 0.0
@@ -371,7 +370,7 @@ def main():
     alpha = 0.01
     lr = 0.0005    # learning rate
     hidden_dim = 64
-    num_layers = 2
+    num_layers = 1
     is_load_weights = False
     metric = 'rmse'
     train_size = 55
@@ -391,8 +390,10 @@ def main():
 
     if not is_load_weights:
         print('seed:{}'.format(seed))
-        model = Transformer(feature_size=feature_size, hidden_dim=hidden_dim, num_layers=num_layers, nhead=nhead, dropout=dropout,
-                            noise_level=noise_level, output_size=5)
+        # model = AdaTransformer(feature_size=feature_size, hidden_dim=hidden_dim, num_layers=num_layers, nhead=nhead, dropout=dropout,
+        #                     noise_level=noise_level, output_size=features_num)
+        model = Transformer(d_input=features_num, d_model=d_model,
+                            d_output=features_num, q=q, v=v, h=nhead, N=num_layers, attention_size=attention_size)
         model = model.to(device)
         optimizer = torch.optim.Adam(
             model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -403,24 +404,21 @@ def main():
             loss, weight_mat, dist_mat = train(Battery=train_batteries, Battery_list=train_names, epoch=epoch, model=model, optimizer=optimizer,
                                                dist_old=dist_mat, weight_mat=weight_mat, window_size=window_size, feature_size=feature_size, num_layers=num_layers, alpha=alpha, pred_window_size=pred_window_size, train_on_test=False)
             print('Validating ...')
-            val_loss = test(Battery=valid_batteries, Battery_list=valid_names,
-                            model=model, feature_size=feature_size, window_size=window_size)
-            test_loss = test(Battery=test_batteries, Battery_list=test_names,
-                             model=model, feature_size=feature_size, window_size=window_size)
-            print('Valid %.6f, Test %.6f' % (val_loss, test_loss))
-            if val_loss < best_score:
-                best_score = val_loss
-                torch.save(model, "./result/model/adaTransformer-{}.pth".format(
-                    s_time))
+            # val_loss = test(Battery=valid_batteries, Battery_list=valid_names,
+            #                 model=model, feature_size=feature_size, window_size=window_size)
+            # test_loss = test(Battery=test_batteries, Battery_list=test_names,
+            #                  model=model, feature_size=feature_size, window_size=window_size)
+            # print('Valid %.6f, Test %.6f' % (val_loss, test_loss))
+            # if val_loss < best_score:
+            #     best_score = val_loss
+            #     torch.save(model, "./result/model/adaTransformer-{}.pth".format(
+            #         s_time))
     else:
         '''choose a version of model'''
         model = torch.load(
             './result/model/adaTransformer-2022-11-15 23-52-03.pth')
         optimizer = torch.optim.Adam(
             model.parameters(), lr=lr, weight_decay=weight_decay)
-
-    os.makedirs(f"./result/test/{s_time}")
-    os.makedirs(f"./result/train/{s_time}")
 
     # for epoch in range(EPOCH_ON_TEST):
 
@@ -432,12 +430,14 @@ def main():
     test_error_dict = {}
 
     predict_results = predict(train_batteries, train_names, model,
-                              feature_size=feature_size, terminal_rate=terminal_rate,window_size=window_size)
+                              feature_size=features_num, terminal_rate=terminal_rate, window_size=window_size)
+    os.makedirs(f"./result/train/{s_time}")
     save_result(train_batteries, train_names, predict_results,
                 train_error_dict, s_time, type='train')
 
     predict_results = predict(
-        test_batteries, test_names, model, feature_size=feature_size, terminal_rate=terminal_rate,window_size=window_size)
+        test_batteries, test_names, model, feature_size=features_num, terminal_rate=terminal_rate, window_size=window_size)
+    os.makedirs(f"./result/test/{s_time}")
     save_result(test_batteries, test_names, predict_results,
                 test_error_dict, s_time, type='test')
 
